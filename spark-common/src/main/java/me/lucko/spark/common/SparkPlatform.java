@@ -353,12 +353,18 @@ public class SparkPlatform {
         });
 
         // schedule a task to detect timeouts
+        // Use a longer initial delay to avoid false positives for commands that perform
+        // network I/O (e.g. uploading profiler results), which can legitimately take
+        // more than a few seconds on slow connections. BytebinClient has a 10s read
+        // timeout, so the first warning fires after 30s (well above the max upload time).
         this.plugin.executeAsync(() -> {
             timeoutThread.set(Thread.currentThread());
             try {
-                for (int i = 1; i <= 3; i++) {
+                int[] delays = {30, 10, 10};
+                int elapsed = 0;
+                for (int delay : delays) {
                     try {
-                        Thread.sleep(5000);
+                        Thread.sleep(delay * 1000L);
                     } catch (InterruptedException e) {
                         // ignore
                     }
@@ -367,10 +373,11 @@ public class SparkPlatform {
                         return;
                     }
 
+                    elapsed += delay;
                     Thread executor = executorThread.get();
                     if (executor == null) {
                         getPlugin().log(Level.WARNING, "A command execution has not completed after " +
-                                (i * 5) + " seconds but there is no executor present. Perhaps the executor shutdown?");
+                                elapsed + " seconds but there is no executor present. Perhaps the executor shutdown?");
 
                     } else {
                         String stackTrace = Arrays.stream(executor.getStackTrace())
@@ -378,7 +385,7 @@ public class SparkPlatform {
                                 .collect(Collectors.joining("\n"));
 
                         getPlugin().log(Level.WARNING, "A command execution has not completed after " +
-                                (i * 5) + " seconds, it might be stuck. Trace: \n" + stackTrace);
+                                elapsed + " seconds, it might be stuck. Trace: \n" + stackTrace);
                     }
                 }
             } finally {
